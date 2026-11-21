@@ -57,7 +57,23 @@ Member 2 Phase 1 focuses on project scaffolding, workspace layouts, API health, 
 | Containers | Docker Compose |
 | Testing | Jest + Supertest |
 
-## Quick start
+## Quick start (Docker Compose)
+
+```bash
+# Configure secrets (never commit .env)
+cp .env.example .env
+
+# Build and start frontend, backend, PostgreSQL, and Qdrant
+docker compose up --build
+```
+
+- UI: http://localhost:3000
+- API health: http://localhost:4000/api/health
+- Qdrant: http://localhost:6333/readyz
+
+The backend entrypoint runs `prisma migrate deploy` before serving traffic. Uploads, PostgreSQL, and Qdrant data use named volumes.
+
+## Local development (without full Compose app stack)
 
 ```bash
 # Install dependencies
@@ -69,8 +85,8 @@ cp .env.example .env
 cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
 
-# Start Postgres + Qdrant
-docker compose up -d
+# Start Postgres + Qdrant only
+docker compose up -d postgres qdrant
 
 # Run API
 cd backend && npm run dev
@@ -92,11 +108,17 @@ cd frontend && npm run dev
 | `npm run build` | Compile TypeScript |
 | `npm start` | Run compiled API |
 | `npm run lint` | ESLint |
-| `npm test` | Jest + Supertest |
+| `npm test` | Jest + Supertest against `docverify_ai_test` |
+| `npm run test:unit` | Unit tests only |
+| `npm run test:integration` | Integration tests only |
+| `npm run typecheck` | TypeScript `--noEmit` check |
+| `npm run test:db:migrate` | Apply Prisma migrations to the test database |
 | `npm run prisma:generate` | Generate Prisma client |
 | `npm run prisma:migrate` | Create/apply migrations |
 | `npm run prisma:seed` | Seed document types, checklist, users |
 | `npm run prisma:validate` | Validate seeded relationships |
+
+Automated tests use synthetic `@example.test` accounts, a dedicated PostgreSQL database (`docverify_ai_test`), and never production credentials.
 
 ### Frontend
 

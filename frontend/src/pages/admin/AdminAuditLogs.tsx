@@ -58,6 +58,8 @@ export function AdminAuditLogs() {
   }
 
   useEffect(() => {
+    // Initial audit log fetch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- remote list load on mount
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load
   }, []);

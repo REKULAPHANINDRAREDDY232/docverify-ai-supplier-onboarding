@@ -65,6 +65,8 @@ export function AdminSuppliers() {
   }
 
   useEffect(() => {
+    // Initial supplier directory fetch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- remote list load on mount
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load
   }, []);

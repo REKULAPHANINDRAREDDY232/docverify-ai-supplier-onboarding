@@ -2,43 +2,199 @@ name: CI
 
 on:
   push:
-    branches: [main, master, develop]
+    branches: [main]
   pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
 
 jobs:
-  backend:
-    name: Backend lint, test, build
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
-      - run: npm ci
-      - run: cp .env.example .env
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
-
   frontend:
-    name: Frontend lint and build
+    name: Frontend lint, typecheck, build
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
-      - run: cp .env.example .env
-      - run: npm run lint
-      - run: npm run build
+
+      - name: Verify required npm scripts exist
+        run: |
+          node -e "
+            const pkg = require('./package.json');
+            for (const name of ['lint', 'typecheck', 'build']) {
+              if (!pkg.scripts?.[name]) {
+                console.error('Missing required script:', name);
+                process.exit(1);
+              }
+            }
+            console.log('Frontend scripts OK:', ['lint', 'typecheck', 'build'].join(', '));
+          "
+
+      - name: Install dependencies from lockfile
+        run: npm ci
+
+      - name: Prepare frontend env from example
+        run: cp .env.example .env
+
+      - name: Frontend lint
+        run: npm run lint
+
+      - name: Frontend TypeScript type checking
+        run: npm run typecheck
+
+      - name: Frontend build
+        run: npm run build
+
+  backend:
+    name: Backend lint, typecheck, tests, Prisma
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      NODE_ENV: test
+      # CI Postgres service (not production). Synthetic credentials only.
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/docverify_ai_test?schema=public
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/docverify_ai_test?schema=public
+      TEST_JWT_SECRET: ci-only-jwt-secret-value
+      JWT_SECRET: ci-only-jwt-secret-value
+      JWT_EXPIRES_IN: 8h
+      CORS_ORIGIN: http://localhost:5173
+      COOKIE_SECURE: 'false'
+      UPLOAD_DIR: uploads-ci
+      MAX_UPLOAD_BYTES: '10485760'
+      QDRANT_URL: http://localhost:6333
+      SEED_ENABLED: 'false'
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: docverify_ai_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d docverify_ai_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Verify required npm scripts exist
+        run: |
+          node -e "
+            const pkg = require('./package.json');
+            const required = [
+              'lint',
+              'typecheck',
+              'test',
+              'test:unit',
+              'test:integration',
+              'prisma:generate',
+              'prisma:migrate:deploy',
+              'prisma:validate:schema',
+              'build',
+            ];
+            for (const name of required) {
+              if (!pkg.scripts?.[name]) {
+                console.error('Missing required script:', name);
+                process.exit(1);
+              }
+            }
+            console.log('Backend scripts OK:', required.join(', '));
+          "
+
+      - name: Install dependencies from lockfile
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Validate Prisma schema
+        run: npm run prisma:validate:schema
+
+      - name: Apply Prisma migrations to test database
+        run: npm run prisma:migrate:deploy
+
+      - name: Backend lint
+        run: npm run lint
+
+      - name: Backend TypeScript type checking
+        run: npm run typecheck
+
+      - name: Backend unit tests
+        run: npm run test:unit
+
+      - name: Backend integration tests
+        run: npm run test:integration
+
+  docker:
+    name: Compose config and image builds
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare Compose env from example (no real secrets)
+        run: |
+          cp .env.example .env
+          # Synthetic CI-only placeholders — never production credentials.
+          sed -i \
+            -e 's/replace-with-strong-db-password/ci-postgres-password/g' \
+            -e 's/replace-with-a-long-random-secret/ci-only-jwt-secret-value/g' \
+            .env
+          grep -E '^(POSTGRES_USER|POSTGRES_DB|NODE_ENV|PORT|CORS_ORIGIN|VITE_APP_NAME)=' .env
+
+      - name: Docker Compose configuration validation
+        run: docker compose config --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Frontend Docker image build
+        run: |
+          docker build \
+            --file frontend/Dockerfile \
+            --build-arg VITE_API_BASE_URL=http://localhost:4000 \
+            --build-arg VITE_APP_NAME='DocVerify AI' \
+            --tag docverify-ai-frontend:ci \
+            frontend
+
+      - name: Backend Docker image build
+        run: |
+          docker build \
+            --file backend/Dockerfile \
+            --tag docverify-ai-backend:ci \
+            backend
+
+  ci-success:
+    name: CI gate
+    runs-on: ubuntu-latest
+    needs: [frontend, backend, docker]
+    steps:
+      - name: All required checks passed
+        run: echo "Frontend, backend, and Docker CI jobs succeeded."

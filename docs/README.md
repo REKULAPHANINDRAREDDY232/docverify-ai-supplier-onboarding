@@ -11,6 +11,7 @@ DocVerify AI: Supplier Onboarding documentation for the Senior IT Project.
 | `database-schema.md` | PostgreSQL / Prisma schema and relationships |
 | `api.md` | API endpoint notes |
 | `setup.md` | Local development setup |
+| `ci.md` | GitHub Actions CI checks and how to inspect runs |
 
 ## Current phase focus
 

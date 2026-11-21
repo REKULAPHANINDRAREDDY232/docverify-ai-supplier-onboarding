@@ -31,6 +31,8 @@ export function AdminDocumentTypes() {
   }
 
   useEffect(() => {
+    // Initial document-type catalogue fetch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- remote list load on mount
     void load();
   }, []);
 

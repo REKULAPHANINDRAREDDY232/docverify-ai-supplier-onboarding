@@ -6,7 +6,8 @@ import { AUTH_COOKIE_NAME } from '../types/auth';
 function baseCookieOptions(): CookieOptions {
   return {
     httpOnly: true,
-    secure: env.NODE_ENV === 'production',
+    // Keep false for local HTTP Docker; enable via COOKIE_SECURE=true behind HTTPS.
+    secure: env.COOKIE_SECURE,
     sameSite: 'lax',
     path: '/',
   };

@@ -10,6 +10,10 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
   JWT_EXPIRES_IN: z.string().default('8h'),
   CORS_ORIGIN: z.string().url().default('http://localhost:5173'),
+  COOKIE_SECURE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
   UPLOAD_DIR: z.string().default('uploads'),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(10_485_760),
   QDRANT_URL: z.string().url().default('http://localhost:6333'),
