@@ -46,6 +46,11 @@ export async function cleanupUserByEmail(email: string): Promise<void> {
     await prisma.supplier.delete({ where: { id: user.supplierAsContact.id } });
   }
 
+  await prisma.checklistCheck.deleteMany({ where: { checkedById: user.id } });
+  await prisma.reviewAction.deleteMany({ where: { reviewerId: user.id } });
+  await prisma.documentRequest.deleteMany({ where: { reviewerId: user.id } });
+  await prisma.supplierDocument.deleteMany({ where: { uploadedById: user.id } });
+
   await prisma.auditLog.deleteMany({
     where: {
       OR: [{ actorId: user.id }, { entityId: user.id }, { entityId: email.toLowerCase() }],

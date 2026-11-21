@@ -3,13 +3,19 @@ import { useAuth } from './auth/AuthContext';
 import { ProtectedRoute } from './auth/ProtectedRoute';
 import { defaultPathForRole } from './auth/paths';
 import { AppShell } from './components/layout/AppShell';
-import { AdminOverview } from './pages/admin/AdminOverview';
+import { AdminAuditLogs } from './pages/admin/AdminAuditLogs';
+import { AdminChecklists } from './pages/admin/AdminChecklists';
+import { AdminDashboard } from './pages/admin/AdminDashboard';
+import { AdminDocumentTypes } from './pages/admin/AdminDocumentTypes';
+import { AdminReferenceSources } from './pages/admin/AdminReferenceSources';
+import { AdminSuppliers } from './pages/admin/AdminSuppliers';
 import { AdminUsers } from './pages/admin/AdminUsers';
 import { LoginPage } from './pages/auth/LoginPage';
 import { RegisterPage } from './pages/auth/RegisterPage';
 import { LandingPage } from './pages/LandingPage';
-import { ReviewerQueue } from './pages/reviewer/ReviewerQueue';
-import { ReviewWorkspace } from './pages/reviewer/ReviewWorkspace';
+import { ReviewerDashboard } from './pages/reviewer/ReviewerDashboard';
+import { ReviewerSupplierDetailPage } from './pages/reviewer/ReviewerSupplierDetail';
+import { ReviewerSuppliers } from './pages/reviewer/ReviewerSuppliers';
 import { SupplierDashboard } from './pages/supplier/SupplierDashboard';
 import { SupplierDocuments } from './pages/supplier/SupplierDocuments';
 import { SupplierOnboarding } from './pages/supplier/SupplierOnboarding';
@@ -23,13 +29,18 @@ const supplierNav = [
 ];
 
 const reviewerNav = [
-  { to: '/reviewer', label: 'Review queue', end: true },
-  { to: '/reviewer/workspace', label: 'Review workspace' },
+  { to: '/reviewer/dashboard', label: 'Dashboard', end: true },
+  { to: '/reviewer/suppliers', label: 'Suppliers' },
 ];
 
 const adminNav = [
-  { to: '/admin', label: 'Overview', end: true },
-  { to: '/admin/users', label: 'User access' },
+  { to: '/admin/dashboard', label: 'Dashboard', end: true },
+  { to: '/admin/users', label: 'Users' },
+  { to: '/admin/suppliers', label: 'Suppliers' },
+  { to: '/admin/document-types', label: 'Document types' },
+  { to: '/admin/checklists', label: 'Checklists' },
+  { to: '/admin/reference-sources', label: 'Reference sources' },
+  { to: '/admin/audit-logs', label: 'Audit logs' },
 ];
 
 function HomeRedirect() {
@@ -76,7 +87,7 @@ export default function App() {
       <Route
         path="/reviewer"
         element={
-          <ProtectedRoute roles={['REVIEWER']}>
+          <ProtectedRoute roles={['REVIEWER', 'ADMIN']}>
             <AppShell
               title="Reviewer dashboard"
               subtitle="Assess supplier documents and decisions"
@@ -86,8 +97,10 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<ReviewerQueue />} />
-        <Route path="workspace" element={<ReviewWorkspace />} />
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={<ReviewerDashboard />} />
+        <Route path="suppliers" element={<ReviewerSuppliers />} />
+        <Route path="suppliers/:id" element={<ReviewerSupplierDetailPage />} />
       </Route>
 
       <Route
@@ -95,16 +108,22 @@ export default function App() {
         element={
           <ProtectedRoute roles={['ADMIN']}>
             <AppShell
-              title="Admin dashboard"
-              subtitle="Control access and onboarding operations"
+              title="Admin workspace"
+              subtitle="Control access, catalogues, and onboarding operations"
               items={adminNav}
               roleLabel="ADMIN"
             />
           </ProtectedRoute>
         }
       >
-        <Route index element={<AdminOverview />} />
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={<AdminDashboard />} />
         <Route path="users" element={<AdminUsers />} />
+        <Route path="suppliers" element={<AdminSuppliers />} />
+        <Route path="document-types" element={<AdminDocumentTypes />} />
+        <Route path="checklists" element={<AdminChecklists />} />
+        <Route path="reference-sources" element={<AdminReferenceSources />} />
+        <Route path="audit-logs" element={<AdminAuditLogs />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

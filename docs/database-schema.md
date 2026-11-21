@@ -46,8 +46,10 @@ ADMIN-managed configuration
 Authentication identity and role assignment.
 
 - Unique: `email`
-- Indexes: `role`
+- Fields include `isActive` (default `true`); inactive users cannot log in or use authenticated APIs
+- Indexes: `role`, `isActive`
 - Relations: optional `Supplier` as contact, uploaded documents, checklist checks, review actions, document requests, audit logs
+- `passwordHash` is never returned from API responses
 
 ### Supplier
 

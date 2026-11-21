@@ -37,3 +37,10 @@ export function assertCanDownloadDocument(
 ): void {
   assertCanViewSupplier(user, supplier);
 }
+
+export function assertCanReview(user: AuthUser): void {
+  if (user.role === UserRole.REVIEWER || user.role === UserRole.ADMIN) {
+    return;
+  }
+  throw new AppError(403, 'Only reviewers can perform this action');
+}

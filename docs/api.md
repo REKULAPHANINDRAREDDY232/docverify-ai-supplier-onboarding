@@ -49,18 +49,41 @@ Upload rules:
 - UUID storage filenames under `UPLOAD_DIR`
 - Replacement marks previous ACTIVE document as `REPLACED` and links via `supersededDocumentId`
 
-### Admin provisioning
+### Reviewer dashboard
 
 | Method | Path | Access |
 | --- | --- | --- |
-| `POST` | `/api/admin/users` | `ADMIN` creates `REVIEWER` or `ADMIN` |
-| `GET` | `/api/admin/users` | `ADMIN` |
-| `GET` | `/api/admin/audit-logs` | `ADMIN` |
+| `GET` | `/api/reviewer/dashboard` | `REVIEWER` / `ADMIN` |
+| `GET` | `/api/reviewer/suppliers` | Search `q`, filter `status` |
+| `GET` | `/api/reviewer/suppliers/:id` | Packet detail + checklist + history |
+| `PUT` | `/api/reviewer/suppliers/:id/checklist/:itemId` | Record checklist result |
+| `POST` | `/api/reviewer/suppliers/:id/decisions` | `APPROVED` / `ON_HOLD` / `NEEDS_INFORMATION` |
+| `POST` | `/api/reviewer/suppliers/:id/document-requests` | Creates request + sets `NEEDS_INFORMATION` |
+| `PATCH` | `/api/reviewer/suppliers/:id/corrections` | Manual field correction with audit previous/next |
+| `GET` | `/api/reviewer/checklist-items` | Active checklist catalogue |
 
-## Planned
+No OCR, AI classification, authenticity checks, or confidence scores are implemented.
 
-- Checklist check updates
-- Review decision endpoints
-- Document request creation by reviewers
+### Admin workspace
+
+All `/api/admin/*` routes require an authenticated `ADMIN` user. Inactive accounts cannot authenticate. Password hashes are never returned.
+
+| Method | Path | Access |
+| --- | --- | --- |
+| `GET` | `/api/admin/dashboard` | Supplier totals and status counts, user totals, catalogue counts |
+| `GET` | `/api/admin/users` | Search `q`, filter `role` / `isActive` |
+| `POST` | `/api/admin/users` | Create `SUPPLIER_CONTACT`, `REVIEWER`, or `ADMIN` |
+| `PATCH` | `/api/admin/users/:id` | Update name, role, or `isActive` |
+| `GET` | `/api/admin/suppliers` | Search `q`, filter `status` |
+| `GET` | `/api/admin/document-types` | Full document type catalogue |
+| `POST` | `/api/admin/document-types` | Create document type |
+| `PATCH` | `/api/admin/document-types/:id` | Update document type |
+| `GET` | `/api/admin/checklists` | Checklist items with linked document types |
+| `POST` | `/api/admin/checklists` | Create checklist item (version + effective date) |
+| `PATCH` | `/api/admin/checklists/:id` | Update / deactivate checklist item |
+| `GET` | `/api/admin/reference-sources` | Reference source metadata |
+| `POST` | `/api/admin/reference-sources` | Create reference source |
+| `PATCH` | `/api/admin/reference-sources/:id` | Update reference source |
+| `GET` | `/api/admin/audit-logs` | Important audit records (`q`, `action`, `entityType`) |
 
 Do not introduce mocked supplier payloads in place of these endpoints.

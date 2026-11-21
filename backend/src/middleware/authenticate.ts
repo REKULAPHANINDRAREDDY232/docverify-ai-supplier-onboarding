@@ -24,6 +24,7 @@ export async function authenticate(
         name: true,
         email: true,
         role: true,
+        isActive: true,
       },
     });
 
@@ -31,7 +32,16 @@ export async function authenticate(
       throw new AppError(401, 'Authentication required');
     }
 
-    req.user = user;
+    if (!user.isActive) {
+      throw new AppError(401, 'Account is deactivated');
+    }
+
+    req.user = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    };
     next();
   } catch (error) {
     next(error);
