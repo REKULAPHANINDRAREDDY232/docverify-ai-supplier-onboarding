@@ -1,7 +1,12 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { useAuth } from './auth/AuthContext';
+import { ProtectedRoute } from './auth/ProtectedRoute';
+import { defaultPathForRole } from './auth/paths';
 import { AppShell } from './components/layout/AppShell';
 import { AdminOverview } from './pages/admin/AdminOverview';
 import { AdminUsers } from './pages/admin/AdminUsers';
+import { LoginPage } from './pages/auth/LoginPage';
+import { RegisterPage } from './pages/auth/RegisterPage';
 import { LandingPage } from './pages/LandingPage';
 import { ReviewerQueue } from './pages/reviewer/ReviewerQueue';
 import { ReviewWorkspace } from './pages/reviewer/ReviewWorkspace';
@@ -25,20 +30,38 @@ const adminNav = [
   { to: '/admin/users', label: 'User access' },
 ];
 
+function HomeRedirect() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <div className="auth-loading">Restoring session…</div>;
+  }
+
+  if (user) {
+    return <Navigate to={defaultPathForRole(user.role)} replace />;
+  }
+
+  return <LandingPage />;
+}
+
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<LandingPage />} />
+      <Route path="/" element={<HomeRedirect />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
 
       <Route
         path="/supplier"
         element={
-          <AppShell
-            title="Supplier portal"
-            subtitle="Submit and track your onboarding pack"
-            items={supplierNav}
-            roleLabel="SUPPLIER_CONTACT"
-          />
+          <ProtectedRoute roles={['SUPPLIER_CONTACT']}>
+            <AppShell
+              title="Supplier portal"
+              subtitle="Submit and track your onboarding pack"
+              items={supplierNav}
+              roleLabel="SUPPLIER_CONTACT"
+            />
+          </ProtectedRoute>
         }
       >
         <Route index element={<SupplierOverview />} />
@@ -49,12 +72,14 @@ export default function App() {
       <Route
         path="/reviewer"
         element={
-          <AppShell
-            title="Reviewer dashboard"
-            subtitle="Assess supplier documents and decisions"
-            items={reviewerNav}
-            roleLabel="REVIEWER"
-          />
+          <ProtectedRoute roles={['REVIEWER']}>
+            <AppShell
+              title="Reviewer dashboard"
+              subtitle="Assess supplier documents and decisions"
+              items={reviewerNav}
+              roleLabel="REVIEWER"
+            />
+          </ProtectedRoute>
         }
       >
         <Route index element={<ReviewerQueue />} />
@@ -64,12 +89,14 @@ export default function App() {
       <Route
         path="/admin"
         element={
-          <AppShell
-            title="Admin dashboard"
-            subtitle="Control access and onboarding operations"
-            items={adminNav}
-            roleLabel="ADMIN"
-          />
+          <ProtectedRoute roles={['ADMIN']}>
+            <AppShell
+              title="Admin dashboard"
+              subtitle="Control access and onboarding operations"
+              items={adminNav}
+              roleLabel="ADMIN"
+            />
+          </ProtectedRoute>
         }
       >
         <Route index element={<AdminOverview />} />

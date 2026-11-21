@@ -1,3 +1,4 @@
+import { useAuth } from '../../auth/AuthContext';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { SUPPLIER_STATUSES, type SupplierStatus } from '../../types/domain';
 
@@ -8,6 +9,9 @@ const checklist: Array<{ label: string; status: SupplierStatus }> = [
 ];
 
 export function SupplierOverview() {
+  const { user } = useAuth();
+  const supplierStatus = (user?.supplierAsContact?.status as SupplierStatus | undefined) ?? 'DRAFT';
+
   return (
     <section className="stack">
       <div className="page-header">
@@ -17,14 +21,16 @@ export function SupplierOverview() {
             Complete your company profile and upload the required compliance documents.
           </p>
         </div>
-        <StatusBadge status="DRAFT" />
+        <StatusBadge status={supplierStatus} />
       </div>
 
       <div className="panel">
         <h3>Current status</h3>
         <p className="muted">
-          No supplier packet is loaded yet. Connect authentication and the supplier API in a later
-          phase to populate this workspace.
+          Signed in as {user?.name}.{' '}
+          {user?.supplierAsContact
+            ? `${user.supplierAsContact.companyName} is currently ${supplierStatus.replaceAll('_', ' ').toLowerCase()}.`
+            : 'Your supplier packet will appear here once linked.'}
         </p>
         <ul className="status-legend">
           {SUPPLIER_STATUSES.map((status) => (
