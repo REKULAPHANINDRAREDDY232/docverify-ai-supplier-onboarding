@@ -12,14 +12,11 @@ export function LandingPage() {
           admins track onboarding status without spreadsheet handoffs.
         </p>
         <div className="landing__actions">
-          <Link className="button button--primary" to="/supplier">
-            Supplier portal
+          <Link className="button button--primary" to="/login">
+            Sign in
           </Link>
-          <Link className="button button--secondary" to="/reviewer">
-            Reviewer dashboard
-          </Link>
-          <Link className="button button--secondary" to="/admin">
-            Admin dashboard
+          <Link className="button button--secondary" to="/register">
+            Register as supplier
           </Link>
         </div>
       </div>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../auth/AuthContext';
 import { Sidebar, type NavItem } from './Sidebar';
 
 interface AppShellProps {
@@ -11,6 +12,19 @@ interface AppShellProps {
 
 export function AppShell({ title, subtitle, items, roleLabel }: AppShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    try {
+      await logout();
+      navigate('/login', { replace: true });
+    } finally {
+      setLoggingOut(false);
+    }
+  }
 
   return (
     <div className={`app-shell ${menuOpen ? 'app-shell--menu-open' : ''}`}>
@@ -34,7 +48,18 @@ export function AppShell({ title, subtitle, items, roleLabel }: AppShellProps) {
       <div className="app-shell__main">
         <header className="topbar">
           <p className="topbar__context">Supplier onboarding workspace</p>
-          <span className="role-chip role-chip--desktop">{roleLabel}</span>
+          <div className="topbar__actions">
+            <span className="role-chip role-chip--desktop">{roleLabel}</span>
+            {user ? <span className="topbar__user">{user.name}</span> : null}
+            <button
+              type="button"
+              className="button button--secondary"
+              onClick={handleLogout}
+              disabled={loggingOut}
+            >
+              {loggingOut ? 'Signing out…' : 'Sign out'}
+            </button>
+          </div>
         </header>
         <main className="page">
           <Outlet />
