@@ -529,6 +529,39 @@ p {
   font-weight: 600;
 }
 
+.form-success {
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  border-radius: 10px;
+  background: var(--success-soft);
+  color: var(--success);
+  font-weight: 600;
+}
+
+.progress {
+  position: relative;
+  height: 0.85rem;
+  border-radius: 999px;
+  background: #e3ece8;
+  overflow: hidden;
+}
+
+.progress__bar {
+  height: 100%;
+  background: var(--brand);
+  transition: width 120ms ease;
+}
+
+.progress__label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
 .form-grid--two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }

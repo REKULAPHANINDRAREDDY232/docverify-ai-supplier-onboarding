@@ -4,13 +4,18 @@ import express from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { env } from './config/env';
+import { ensureUploadRoot } from './lib/storage';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { adminRouter } from './routes/admin';
 import { authRouter } from './routes/auth';
+import { documentTypesRouter } from './routes/documentTypes';
+import { documentsRouter } from './routes/documents';
 import { healthRouter } from './routes/health';
 import { suppliersRouter } from './routes/suppliers';
 
 export function createApp() {
+  void ensureUploadRoot();
+
   const app = express();
 
   app.use(helmet());
@@ -37,7 +42,9 @@ export function createApp() {
 
   app.use('/api/health', healthRouter);
   app.use('/api/auth', authRouter);
+  app.use('/api/document-types', documentTypesRouter);
   app.use('/api/suppliers', suppliersRouter);
+  app.use('/api/documents', documentsRouter);
   app.use('/api/admin', adminRouter);
 
   app.use(notFoundHandler);
