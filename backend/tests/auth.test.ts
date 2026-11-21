@@ -195,11 +195,13 @@ describe('Authentication API', () => {
     const ownerCookie = cookieHeader(a.headers['set-cookie']);
     const intruderCookie = cookieHeader(b.headers['set-cookie']);
 
-    const ownerMe = await request(app).get('/api/suppliers/me').set('Cookie', ownerCookie);
-    expect(ownerMe.status).toBe(200);
+    const ownerList = await request(app).get('/api/suppliers').set('Cookie', ownerCookie);
+    expect(ownerList.status).toBe(200);
+    expect(ownerList.body.data.suppliers).toHaveLength(1);
 
-    const otherId = (await request(app).get('/api/suppliers/me').set('Cookie', intruderCookie))
-      .body.data.supplier.id;
+    const otherId = (
+      await request(app).get('/api/suppliers').set('Cookie', intruderCookie)
+    ).body.data.suppliers[0].id;
 
     const forbidden = await request(app)
       .get(`/api/suppliers/${otherId}`)

@@ -8,6 +8,6 @@ export function defaultPathForRole(role: UserRole): string {
       return '/reviewer';
     case 'SUPPLIER_CONTACT':
     default:
-      return '/supplier';
+      return '/supplier/dashboard';
   }
 }

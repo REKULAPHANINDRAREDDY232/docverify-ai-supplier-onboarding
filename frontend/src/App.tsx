@@ -10,14 +10,16 @@ import { RegisterPage } from './pages/auth/RegisterPage';
 import { LandingPage } from './pages/LandingPage';
 import { ReviewerQueue } from './pages/reviewer/ReviewerQueue';
 import { ReviewWorkspace } from './pages/reviewer/ReviewWorkspace';
+import { SupplierDashboard } from './pages/supplier/SupplierDashboard';
 import { SupplierDocuments } from './pages/supplier/SupplierDocuments';
-import { SupplierOverview } from './pages/supplier/SupplierOverview';
+import { SupplierOnboarding } from './pages/supplier/SupplierOnboarding';
 import { SupplierProfileForm } from './pages/supplier/SupplierProfileForm';
 
 const supplierNav = [
-  { to: '/supplier', label: 'Overview', end: true },
+  { to: '/supplier/dashboard', label: 'Dashboard', end: true },
   { to: '/supplier/profile', label: 'Company profile' },
   { to: '/supplier/documents', label: 'Documents' },
+  { to: '/supplier/onboarding', label: 'Onboarding' },
 ];
 
 const reviewerNav = [
@@ -64,9 +66,11 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<SupplierOverview />} />
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={<SupplierDashboard />} />
         <Route path="profile" element={<SupplierProfileForm />} />
         <Route path="documents" element={<SupplierDocuments />} />
+        <Route path="onboarding" element={<SupplierOnboarding />} />
       </Route>
 
       <Route
