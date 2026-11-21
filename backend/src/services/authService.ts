@@ -4,7 +4,7 @@ import { hashPassword, verifyPassword } from '../lib/password';
 import { prisma } from '../lib/prisma';
 import { AppError } from '../middleware/errorHandler';
 import type { AuthUser } from '../types/auth';
-import type { AdminCreateUserInput, LoginInput, RegisterInput } from '../validators/auth';
+import type { LoginInput, RegisterInput } from '../validators/auth';
 
 function toAuthUser(user: {
   id: string;
@@ -101,6 +101,17 @@ export async function loginUser(input: LoginInput): Promise<AuthUser> {
     throw new AppError(401, 'Invalid email or password');
   }
 
+  if (!user.isActive) {
+    await writeAuditLog({
+      actorId: user.id,
+      action: 'AUTH_LOGIN_FAILED',
+      entityType: 'User',
+      entityId: user.id,
+      metadata: { reason: 'inactive_account' },
+    });
+    throw new AppError(401, 'Account is deactivated');
+  }
+
   await writeAuditLog({
     actorId: user.id,
     action: 'AUTH_LOGIN',
@@ -137,38 +148,6 @@ export async function getAuthenticatedProfile(userId: string) {
   }
 
   return user;
-}
-
-export async function createProvisionedUser(
-  actorId: string,
-  input: AdminCreateUserInput,
-): Promise<AuthUser> {
-  const email = input.email.toLowerCase();
-  const existing = await prisma.user.findUnique({ where: { email } });
-
-  if (existing) {
-    throw new AppError(409, 'Email is already registered');
-  }
-
-  const passwordHash = await hashPassword(input.password);
-  const user = await prisma.user.create({
-    data: {
-      name: input.name,
-      email,
-      passwordHash,
-      role: input.role,
-    },
-  });
-
-  await writeAuditLog({
-    actorId,
-    action: 'ADMIN_USER_CREATED',
-    entityType: 'User',
-    entityId: user.id,
-    metadata: { role: user.role, email: user.email },
-  });
-
-  return toAuthUser(user);
 }
 
 export async function recordLogout(userId: string): Promise<void> {

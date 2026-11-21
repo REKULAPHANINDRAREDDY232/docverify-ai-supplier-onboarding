@@ -1,4 +1,3 @@
-import { UserRole } from '@prisma/client';
 import { z } from 'zod';
 
 export const registerSchema = z.object({
@@ -19,13 +18,5 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
-export const adminCreateUserSchema = z.object({
-  name: z.string().trim().min(2).max(120),
-  email: z.string().trim().email().max(255),
-  password: z.string().min(10).max(128),
-  role: z.enum([UserRole.REVIEWER, UserRole.ADMIN]),
-});
-
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
-export type AdminCreateUserInput = z.infer<typeof adminCreateUserSchema>;

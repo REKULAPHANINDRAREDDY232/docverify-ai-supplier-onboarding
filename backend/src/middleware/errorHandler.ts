@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { ZodError } from 'zod';
 
 export class AppError extends Error {
   constructor(
@@ -30,6 +31,17 @@ export function errorHandler(
       success: false,
       error: {
         message: err.message,
+      },
+    });
+    return;
+  }
+
+  if (err instanceof ZodError) {
+    const message = err.issues[0]?.message ?? 'Validation failed';
+    res.status(400).json({
+      success: false,
+      error: {
+        message,
       },
     });
     return;

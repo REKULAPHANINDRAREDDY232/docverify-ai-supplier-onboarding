@@ -11,6 +11,7 @@ import { authRouter } from './routes/auth';
 import { documentTypesRouter } from './routes/documentTypes';
 import { documentsRouter } from './routes/documents';
 import { healthRouter } from './routes/health';
+import { reviewerRouter } from './routes/reviewer';
 import { suppliersRouter } from './routes/suppliers';
 
 export function createApp() {
@@ -45,6 +46,7 @@ export function createApp() {
   app.use('/api/document-types', documentTypesRouter);
   app.use('/api/suppliers', suppliersRouter);
   app.use('/api/documents', documentsRouter);
+  app.use('/api/reviewer', reviewerRouter);
   app.use('/api/admin', adminRouter);
 
   app.use(notFoundHandler);
