@@ -1,19 +1,40 @@
+# Dependencies and build outputs
 **/node_modules
 **/dist
 **/build
 **/coverage
+**/.vite
+**/.cache
+**/*.tsbuildinfo
+
+# Git / IDE
 .git
 .github
 .vscode
 .idea
+**/.DS_Store
+
+# Secrets — never send env files into images
 **/.env
 **/.env.*
 !**/.env.example
+
+# Local runtime data
 **/uploads
+**/uploads-test
+docker-data
 **/*.log
-**/.DS_Store
 **/npm-debug.log*
-README.md
+**/yarn-error.log*
+
+# Tests and docs not required for image builds
+**/tests
+**/*.test.ts
+**/*.spec.ts
 docs
-**/*.md
-!backend/prisma/schema.prisma
+*.md
+!README.md
+
+# Frontend can exclude its own Dockerfile noise when building from frontend/
+frontend/Dockerfile
+backend/Dockerfile

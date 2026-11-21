@@ -1,0 +1,14 @@
+node_modules
+dist
+coverage
+uploads
+uploads-test
+tests
+**/*.test.ts
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.vscode
+.idea

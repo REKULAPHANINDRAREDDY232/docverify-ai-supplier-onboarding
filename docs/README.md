@@ -1,35 +1,35 @@
 # Documentation
 
-DocVerify AI: Supplier Onboarding documentation for the Senior IT Project.
+DocVerify AI: Supplier Onboarding — Phase 2 technical documentation.
 
-## Structure
+## Phase boundary (read first)
+
+| Phase 2 (implemented) | Phase 3 (planned, not implemented) |
+| --- | --- |
+| Manual document review by humans | OCR / automatic extraction |
+| Checklist checks entered by reviewers | LLM verification / confidence scores |
+| PostgreSQL persistence + audit logs | RAG / Qdrant-backed answers |
+| Docker Compose + GitHub Actions CI | Real bank/government registry integrations |
+
+## Core documents
 
 | Path | Purpose |
 | --- | --- |
-| `phase-1-product-definition.md` | Member 2 Phase 1 product scope and constraints |
-| `architecture.md` | High-level system architecture |
-| `database-schema.md` | PostgreSQL / Prisma schema and relationships |
-| `api.md` | API endpoint notes |
-| `setup.md` | Local development setup |
+| [`architecture.md`](./architecture.md) | System architecture |
+| [`database-design.md`](./database-design.md) | Database design |
+| [`api-documentation.md`](./api-documentation.md) | API reference |
+| [`docker-setup.md`](./docker-setup.md) | Docker Compose guide |
+| [`testing.md`](./testing.md) | Test strategy and verified results |
+| [`sprint-documentation.md`](./sprint-documentation.md) | Sprint goal, backlog, review, retrospective |
+| [`ci.md`](./ci.md) | How to inspect GitHub Actions |
 
-## Current phase focus
+## Supporting / historical notes
 
-Phase 1 established the project foundation:
+| Path | Purpose |
+| --- | --- |
+| [`phase-1-product-definition.md`](./phase-1-product-definition.md) | Original Phase 1 product constraints |
+| [`setup.md`](./setup.md) | Condensed local setup notes |
+| [`database-schema.md`](./database-schema.md) | Alias notes; prefer `database-design.md` |
+| [`api.md`](./api.md) | Alias notes; prefer `api-documentation.md` |
 
-- React + Vite + TypeScript frontend workspace layouts
-- Express + TypeScript API with health endpoint
-- Docker Compose services for PostgreSQL and Qdrant
-- CI lint/build checks
-
-Phase 2 adds the supplier-onboarding database:
-
-- Prisma models for users, suppliers, documents, checklists, reviews, requests, references, and audit logs
-- Migrations and environment-driven seed accounts
-- Schema documentation and relationship validation
-
-Out of scope:
-
-- OCR / LLM / RAG / AI verification fields or results
-- Real banking or government registry integrations
-- Hardcoded production credentials
-- Fake backend API responses
+Project overview and quick start live in the root [`README.md`](../README.md).

@@ -43,6 +43,8 @@ export function AdminChecklists() {
   }
 
   useEffect(() => {
+    // Initial checklist catalogue fetch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- remote list load on mount
     void load();
   }, []);
 

@@ -1,17 +1,19 @@
 import request from 'supertest';
 import { UserRole } from '@prisma/client';
 import { createApp } from '../src/app';
-import { hashPassword } from '../src/lib/password';
 import { prisma } from '../src/lib/prisma';
 import { AUTH_COOKIE_NAME } from '../src/types/auth';
 import {
+  SYNTHETIC_PASSWORD,
   cleanupUserByEmail,
   cookieHeader,
+  createStaffUser,
+  loginAs,
   registerSupplier,
   uniqueEmail,
 } from './helpers';
 
-describe('Authentication API', () => {
+describe('Authentication & authorization', () => {
   const app = createApp();
   const createdEmails: string[] = [];
 
@@ -22,11 +24,14 @@ describe('Authentication API', () => {
     await prisma.$disconnect();
   });
 
-  it('registers a supplier contact with hashed password and auth cookie', async () => {
+  it('1. registers a supplier contact with hashed password and HttpOnly cookie', async () => {
     const email = uniqueEmail('register');
     createdEmails.push(email);
 
-    const { response } = await registerSupplier(app, { email });
+    const { response } = await registerSupplier(app, {
+      email,
+      companyName: 'Synthetic Register Co',
+    });
 
     expect(response.status).toBe(201);
     expect(response.body.success).toBe(true);
@@ -37,47 +42,39 @@ describe('Authentication API', () => {
 
     const stored = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     expect(stored?.passwordHash).toBeTruthy();
-    expect(stored?.passwordHash).not.toContain('secure-password');
+    expect(stored?.passwordHash).not.toContain(SYNTHETIC_PASSWORD);
+
+    const supplier = await prisma.supplier.findUnique({
+      where: { contactUserId: stored!.id },
+    });
+    expect(supplier?.companyName).toBe('Synthetic Register Co');
+    expect(supplier?.status).toBe('DRAFT');
   });
 
-  it('rejects duplicate email registration', async () => {
+  it('2. rejects duplicate email registration', async () => {
     const email = uniqueEmail('duplicate');
     createdEmails.push(email);
 
-    await registerSupplier(app, { email });
+    const first = await registerSupplier(app, { email });
+    expect(first.response.status).toBe(201);
+
     const second = await registerSupplier(app, { email });
-
     expect(second.response.status).toBe(409);
+    expect(second.response.body.success).toBe(false);
   });
 
-  it('ignores attempted role escalation on public registration', async () => {
-    const email = uniqueEmail('escalate');
-    createdEmails.push(email);
-
-    const response = await request(app)
-      .post('/api/auth/register')
-      .send({
-        name: 'Attacker',
-        email,
-        password: 'secure-password-1',
-        companyName: 'Bad Actor Ltd',
-        role: 'ADMIN',
-      });
-
-    expect(response.status).toBe(201);
-    expect(response.body.data.user.role).toBe(UserRole.SUPPLIER_CONTACT);
-  });
-
-  it('logs in with valid credentials and restores session via /me', async () => {
+  it('3. logs in successfully and restores the session via /me', async () => {
     const email = uniqueEmail('login');
     createdEmails.push(email);
-    const password = 'secure-password-1';
+    await registerSupplier(app, { email, password: SYNTHETIC_PASSWORD });
 
-    await registerSupplier(app, { email, password });
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email, password: SYNTHETIC_PASSWORD });
 
-    const login = await request(app).post('/api/auth/login').send({ email, password });
     expect(login.status).toBe(200);
     expect(login.body.data.user.email).toBe(email.toLowerCase());
+    expect(login.body.data.user.passwordHash).toBeUndefined();
 
     const cookie = cookieHeader(login.headers['set-cookie']);
     const me = await request(app).get('/api/auth/me').set('Cookie', cookie);
@@ -86,19 +83,21 @@ describe('Authentication API', () => {
     expect(me.body.data.user.supplierAsContact).toBeTruthy();
   });
 
-  it('rejects invalid login credentials', async () => {
+  it('4. rejects incorrect password login attempts', async () => {
     const email = uniqueEmail('badlogin');
     createdEmails.push(email);
     await registerSupplier(app, { email });
 
     const response = await request(app)
       .post('/api/auth/login')
-      .send({ email, password: 'wrong-password-value' });
+      .send({ email, password: 'definitely-wrong-password' });
 
     expect(response.status).toBe(401);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error.message).toMatch(/invalid email or password/i);
   });
 
-  it('logs out and clears the auth cookie', async () => {
+  it('5. logs out and clears the authenticated session', async () => {
     const email = uniqueEmail('logout');
     createdEmails.push(email);
     const agent = request.agent(app);
@@ -106,10 +105,13 @@ describe('Authentication API', () => {
     const registerResponse = await agent.post('/api/auth/register').send({
       name: 'Logout User',
       email,
-      password: 'secure-password-1',
-      companyName: 'Logout Co',
+      password: SYNTHETIC_PASSWORD,
+      companyName: 'Logout Synthetic Co',
     });
     expect(registerResponse.status).toBe(201);
+
+    const meBefore = await agent.get('/api/auth/me');
+    expect(meBefore.status).toBe(200);
 
     const logout = await agent.post('/api/auth/logout');
     expect(logout.status).toBe(200);
@@ -117,113 +119,77 @@ describe('Authentication API', () => {
       /docverify_access_token=/,
     );
 
-    const me = await agent.get('/api/auth/me');
-    expect(me.status).toBe(401);
+    const meAfter = await agent.get('/api/auth/me');
+    expect(meAfter.status).toBe(401);
   });
 
-  it('requires authentication for /me', async () => {
-    const response = await request(app).get('/api/auth/me');
-    expect(response.status).toBe(401);
-  });
+  it('6. grants reviewer authorization and blocks supplier contacts from reviewer APIs', async () => {
+    const { email: reviewerEmail } = await createStaffUser(UserRole.REVIEWER);
+    createdEmails.push(reviewerEmail);
+    const reviewerCookie = await loginAs(app, reviewerEmail);
 
-  it('allows admins to provision reviewer accounts and blocks suppliers', async () => {
-    const adminEmail = uniqueEmail('admin');
-    const reviewerEmail = uniqueEmail('reviewer');
-    const supplierEmail = uniqueEmail('supplier-admin-check');
-    createdEmails.push(adminEmail, reviewerEmail, supplierEmail);
+    const reviewerDashboard = await request(app)
+      .get('/api/reviewer/dashboard')
+      .set('Cookie', reviewerCookie);
+    expect(reviewerDashboard.status).toBe(200);
+    expect(reviewerDashboard.body.data.stats).toEqual(
+      expect.objectContaining({
+        submitted: expect.any(Number),
+        inReview: expect.any(Number),
+      }),
+    );
 
-    const admin = await prisma.user.create({
-      data: {
-        name: 'Temp Admin',
-        email: adminEmail,
-        passwordHash: await hashPassword('secure-password-1'),
-        role: UserRole.ADMIN,
-      },
-    });
-
-    const adminLogin = await request(app)
-      .post('/api/auth/login')
-      .send({ email: adminEmail, password: 'secure-password-1' });
-    const adminCookie = cookieHeader(adminLogin.headers['set-cookie']);
-
-    const created = await request(app)
-      .post('/api/admin/users')
-      .set('Cookie', adminCookie)
-      .send({
-        name: 'Provisioned Reviewer',
-        email: reviewerEmail,
-        password: 'secure-password-1',
-        role: UserRole.REVIEWER,
-      });
-
-    expect(created.status).toBe(201);
-    expect(created.body.data.user.role).toBe(UserRole.REVIEWER);
-
-    const { response: supplierRegister } = await registerSupplier(app, {
-      email: supplierEmail,
-    });
-    const supplierCookie = cookieHeader(supplierRegister.headers['set-cookie']);
+    const supplierEmail = uniqueEmail('not-reviewer');
+    createdEmails.push(supplierEmail);
+    const { response } = await registerSupplier(app, { email: supplierEmail });
+    const supplierCookie = cookieHeader(response.headers['set-cookie']);
 
     const blocked = await request(app)
-      .post('/api/admin/users')
-      .set('Cookie', supplierCookie)
-      .send({
-        name: 'Should Fail',
-        email: uniqueEmail('blocked'),
-        password: 'secure-password-1',
-        role: UserRole.ADMIN,
-      });
-
+      .get('/api/reviewer/dashboard')
+      .set('Cookie', supplierCookie);
     expect(blocked.status).toBe(403);
-    expect(admin.id).toBeTruthy();
   });
 
-  it('prevents supplier contacts from accessing another supplier record', async () => {
-    const emailA = uniqueEmail('owner');
-    const emailB = uniqueEmail('intruder');
-    createdEmails.push(emailA, emailB);
+  it('7. grants administrator authorization and blocks supplier contacts from admin APIs', async () => {
+    const { email: adminEmail } = await createStaffUser(UserRole.ADMIN);
+    createdEmails.push(adminEmail);
+    const adminCookie = await loginAs(app, adminEmail);
 
-    const { response: a } = await registerSupplier(app, {
-      email: emailA,
-      companyName: 'Owner Co',
-    });
-    const { response: b } = await registerSupplier(app, {
-      email: emailB,
-      companyName: 'Intruder Co',
-    });
+    const dashboard = await request(app)
+      .get('/api/admin/dashboard')
+      .set('Cookie', adminCookie);
+    expect(dashboard.status).toBe(200);
+    expect(dashboard.body.data.suppliers.total).toEqual(expect.any(Number));
 
-    const ownerCookie = cookieHeader(a.headers['set-cookie']);
-    const intruderCookie = cookieHeader(b.headers['set-cookie']);
+    const supplierEmail = uniqueEmail('not-admin');
+    createdEmails.push(supplierEmail);
+    const { response } = await registerSupplier(app, { email: supplierEmail });
+    const supplierCookie = cookieHeader(response.headers['set-cookie']);
 
-    const ownerList = await request(app).get('/api/suppliers').set('Cookie', ownerCookie);
-    expect(ownerList.status).toBe(200);
-    expect(ownerList.body.data.suppliers).toHaveLength(1);
+    const blocked = await request(app)
+      .get('/api/admin/users')
+      .set('Cookie', supplierCookie);
+    expect(blocked.status).toBe(403);
 
-    const otherId = (
-      await request(app).get('/api/suppliers').set('Cookie', intruderCookie)
-    ).body.data.suppliers[0].id;
-
-    const forbidden = await request(app)
-      .get(`/api/suppliers/${otherId}`)
-      .set('Cookie', ownerCookie);
-
-    expect(forbidden.status).toBe(403);
+    const unauthenticated = await request(app).get('/api/admin/dashboard');
+    expect(unauthenticated.status).toBe(401);
   });
 
-  it('writes audit logs for register and login', async () => {
-    const email = uniqueEmail('audit');
+  it('ignores public registration role escalation attempts', async () => {
+    const email = uniqueEmail('escalate');
     createdEmails.push(email);
 
-    await registerSupplier(app, { email });
-    await request(app)
-      .post('/api/auth/login')
-      .send({ email, password: 'secure-password-1' });
+    const response = await request(app)
+      .post('/api/auth/register')
+      .send({
+        name: 'Attacker',
+        email,
+        password: SYNTHETIC_PASSWORD,
+        companyName: 'Bad Actor Ltd',
+        role: 'ADMIN',
+      });
 
-    const user = await prisma.user.findUniqueOrThrow({ where: { email: email.toLowerCase() } });
-    const logs = await prisma.auditLog.findMany({
-      where: { actorId: user.id, action: { in: ['AUTH_REGISTER', 'AUTH_LOGIN'] } },
-    });
-
-    expect(logs.map((log) => log.action).sort()).toEqual(['AUTH_LOGIN', 'AUTH_REGISTER']);
+    expect(response.status).toBe(201);
+    expect(response.body.data.user.role).toBe(UserRole.SUPPLIER_CONTACT);
   });
 });

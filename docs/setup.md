@@ -1,66 +1,39 @@
 # Local Setup
 
-## Prerequisites
+For full Phase 2 instructions, use:
 
-- Node.js 22+
-- npm 10+
-- Docker Desktop (for PostgreSQL and Qdrant)
+- Root [`README.md`](../README.md)
+- [`docker-setup.md`](./docker-setup.md)
+- [`testing.md`](./testing.md)
+- [`ci.md`](./ci.md)
 
-## 1. Clone and install
+## Quick paths
 
-```bash
-cd frontend && npm install
-cd ../backend && npm install
-```
-
-## 2. Environment files
+### Docker (recommended)
 
 ```bash
 cp .env.example .env
-cp frontend/.env.example frontend/.env
+# replace secrets
+docker compose up --build
+```
+
+- UI: http://localhost:3000  
+- API health: http://localhost:4000/api/health  
+
+### Host apps + Compose infrastructure
+
+```bash
+cp .env.example .env
 cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+
+docker compose up -d postgres qdrant
+
+cd backend && npm ci && npx prisma migrate deploy && npm run dev
+cd ../frontend && npm ci && npm run dev
 ```
 
-Replace `JWT_SECRET` with a long random value before any authentication work.
+- UI: http://localhost:5173  
+- API: http://localhost:4000  
 
-## 3. Start infrastructure
-
-```bash
-docker compose up -d
-```
-
-PostgreSQL is published on host port `5434` by default to avoid conflicts with local Postgres installs. Use the `DATABASE_URL` from `.env.example`.
-
-## 4. Run apps
-
-```bash
-# terminal 1
-cd backend
-npm run dev
-
-# terminal 2
-cd frontend
-npm run dev
-```
-
-- Frontend: http://localhost:5173
-- Backend health: http://localhost:4000/api/health
-
-## 5. Database migrate and seed
-
-```bash
-cd backend
-npx prisma generate
-npx prisma migrate dev --name init_supplier_onboarding
-npm run prisma:seed
-npm run prisma:validate
-```
-
-Configure `SEED_*` values in `backend/.env` before seeding. Do not commit real credentials.
-
-## 6. Quality checks
-
-```bash
-cd backend && npm run lint && npm test && npm run build
-cd ../frontend && npm run lint && npm run build
-```
+Never commit real `.env` files. Phase 2 does not include OCR/LLM/RAG features.

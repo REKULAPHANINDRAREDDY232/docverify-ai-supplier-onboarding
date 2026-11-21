@@ -4,16 +4,18 @@ import path from 'node:path';
 import request from 'supertest';
 import { UserRole } from '@prisma/client';
 import { createApp } from '../src/app';
-import { hashPassword } from '../src/lib/password';
 import { prisma } from '../src/lib/prisma';
 import {
   cleanupUserByEmail,
   cookieHeader,
+  createStaffUser,
+  ensureCoreChecklistItems,
+  ensureCoreDocumentTypes,
+  loginAs,
   registerSupplier,
   uniqueEmail,
+  uploadRequiredDocuments,
 } from './helpers';
-
-const PDF_BUFFER = Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n');
 
 describe('Reviewer dashboard workflow', () => {
   const previousUploadDir = process.env.UPLOAD_DIR;
@@ -32,66 +34,10 @@ describe('Reviewer dashboard workflow', () => {
     fs.rmSync(uploadDir, { recursive: true, force: true });
   });
 
-  async function ensureTypesAndChecklist() {
-    const codes = ['BUSINESS_REGISTRATION', 'BANK_CONFIRMATION', 'INSURANCE_CERTIFICATE'] as const;
-    const types = [];
-    for (const code of codes) {
-      types.push(
-        await prisma.documentType.upsert({
-          where: { code },
-          update: { active: true, required: true },
-          create: {
-            code,
-            name: code.replaceAll('_', ' '),
-            description: `${code} type`,
-            required: true,
-            active: true,
-          },
-        }),
-      );
-    }
-
-    for (const type of types) {
-      const existing = await prisma.checklistItem.findFirst({
-        where: { title: `${type.code} present`, version: '1.0' },
-      });
-      if (!existing) {
-        await prisma.checklistItem.create({
-          data: {
-            title: `${type.code} present`,
-            description: `Confirm ${type.name} is present`,
-            documentTypeId: type.id,
-            isRequired: true,
-            isActive: true,
-            version: '1.0',
-            effectiveDate: new Date('2026-01-01T00:00:00.000Z'),
-          },
-        });
-      }
-    }
-
-    return types;
-  }
-
-  async function createReviewer() {
-    const email = uniqueEmail('reviewer');
-    createdEmails.push(email);
-    await prisma.user.create({
-      data: {
-        name: 'Packet Reviewer',
-        email,
-        passwordHash: await hashPassword('secure-password-1'),
-        role: UserRole.REVIEWER,
-      },
-    });
-    const login = await request(app)
-      .post('/api/auth/login')
-      .send({ email, password: 'secure-password-1' });
-    return { email, cookie: cookieHeader(login.headers['set-cookie']) };
-  }
-
   async function createSubmittedSupplier(companyName: string) {
-    const types = await ensureTypesAndChecklist();
+    const types = await ensureCoreDocumentTypes();
+    await ensureCoreChecklistItems(types);
+
     const email = uniqueEmail('rev-supplier');
     createdEmails.push(email);
     const registered = await registerSupplier(app, { email, companyName });
@@ -99,17 +45,7 @@ describe('Reviewer dashboard workflow', () => {
     const supplierId = (await request(app).get('/api/suppliers').set('Cookie', cookie)).body.data
       .suppliers[0].id as string;
 
-    for (const type of types) {
-      const upload = await request(app)
-        .post(`/api/suppliers/${supplierId}/documents`)
-        .set('Cookie', cookie)
-        .field('documentTypeId', type.id)
-        .attach('file', PDF_BUFFER, {
-          filename: `${type.code}.pdf`,
-          contentType: 'application/pdf',
-        });
-      expect(upload.status).toBe(201);
-    }
+    await uploadRequiredDocuments(app, cookie, supplierId, types);
 
     const submit = await request(app)
       .post(`/api/suppliers/${supplierId}/submit`)
@@ -119,7 +55,7 @@ describe('Reviewer dashboard workflow', () => {
     return { supplierId, supplierCookie: cookie, types };
   }
 
-  it('blocks supplier contacts from reviewer endpoints', async () => {
+  it('blocks unauthorized users from reviewer APIs', async () => {
     const email = uniqueEmail('blocked-reviewer');
     createdEmails.push(email);
     const registered = await registerSupplier(app, { email });
@@ -127,74 +63,168 @@ describe('Reviewer dashboard workflow', () => {
 
     const dashboard = await request(app).get('/api/reviewer/dashboard').set('Cookie', cookie);
     expect(dashboard.status).toBe(403);
+
+    const list = await request(app).get('/api/reviewer/suppliers').set('Cookie', cookie);
+    expect(list.status).toBe(403);
   });
 
-  it('lists submitted suppliers, records checklist/decision/request/correction', async () => {
-    const reviewer = await createReviewer();
-    const { supplierId, types } = await createSubmittedSupplier('Reviewable Supplies Ltd');
+  it('16. lists submitted supplier packets for reviewers', async () => {
+    const { email } = await createStaffUser(UserRole.REVIEWER);
+    createdEmails.push(email);
+    const reviewerCookie = await loginAs(app, email);
+    const { supplierId } = await createSubmittedSupplier('Listable Supplies Ltd');
 
     const listed = await request(app)
       .get('/api/reviewer/suppliers')
-      .query({ q: 'Reviewable', status: 'SUBMITTED' })
-      .set('Cookie', reviewer.cookie);
+      .query({ q: 'Listable', status: 'SUBMITTED' })
+      .set('Cookie', reviewerCookie);
+
     expect(listed.status).toBe(200);
     expect(listed.body.data.suppliers.some((row: { id: string }) => row.id === supplierId)).toBe(
       true,
     );
+  });
+
+  it('17. allows reviewers to access supplier documents', async () => {
+    const { email } = await createStaffUser(UserRole.REVIEWER);
+    createdEmails.push(email);
+    const reviewerCookie = await loginAs(app, email);
+    const { supplierId } = await createSubmittedSupplier('Document Access Supplies');
 
     const detail = await request(app)
       .get(`/api/reviewer/suppliers/${supplierId}`)
-      .set('Cookie', reviewer.cookie);
+      .set('Cookie', reviewerCookie);
     expect(detail.status).toBe(200);
-    expect(detail.body.data.checklistItems.length).toBeGreaterThan(0);
+    expect(detail.body.data.supplier.documents.length).toBeGreaterThanOrEqual(3);
 
+    const documentId = detail.body.data.supplier.documents[0].id as string;
+    const download = await request(app)
+      .get(`/api/documents/${documentId}/download`)
+      .set('Cookie', reviewerCookie);
+    expect(download.status).toBe(200);
+    expect(download.body.length).toBeGreaterThan(0);
+  });
+
+  it('18. records checklist results', async () => {
+    const { email } = await createStaffUser(UserRole.REVIEWER);
+    createdEmails.push(email);
+    const reviewerCookie = await loginAs(app, email);
+    const { supplierId } = await createSubmittedSupplier('Checklist Supplies');
+
+    const detail = await request(app)
+      .get(`/api/reviewer/suppliers/${supplierId}`)
+      .set('Cookie', reviewerCookie);
     const itemId = detail.body.data.checklistItems[0].id as string;
+
     const check = await request(app)
       .put(`/api/reviewer/suppliers/${supplierId}/checklist/${itemId}`)
-      .set('Cookie', reviewer.cookie)
+      .set('Cookie', reviewerCookie)
       .send({ status: 'PRESENT', comment: 'Document visually confirmed' });
+
     expect(check.status).toBe(200);
     expect(check.body.data.check.status).toBe('PRESENT');
     expect(check.body.data.check.checkedById).toBeTruthy();
 
-    const correction = await request(app)
-      .patch(`/api/reviewer/suppliers/${supplierId}/corrections`)
-      .set('Cookie', reviewer.cookie)
+    const persisted = await prisma.checklistCheck.findUnique({
+      where: {
+        supplierId_checklistItemId: {
+          supplierId,
+          checklistItemId: itemId,
+        },
+      },
+    });
+    expect(persisted?.status).toBe('PRESENT');
+    expect(persisted?.comment).toBe('Document visually confirmed');
+  });
+
+  it('19. records reviewer decisions and updates supplier status', async () => {
+    const { email } = await createStaffUser(UserRole.REVIEWER);
+    createdEmails.push(email);
+    const reviewerCookie = await loginAs(app, email);
+    const { supplierId } = await createSubmittedSupplier('Decision Supplies');
+
+    const decision = await request(app)
+      .post(`/api/reviewer/suppliers/${supplierId}/decisions`)
+      .set('Cookie', reviewerCookie)
       .send({
-        legalName: 'Reviewable Supplies Limited',
-        reason: 'Align legal name with registration certificate',
+        decision: 'APPROVED',
+        comment: 'All required synthetic documents are acceptable.',
       });
-    expect(correction.status).toBe(200);
-    expect(correction.body.data.supplier.legalName).toBe('Reviewable Supplies Limited');
+
+    expect(decision.status).toBe(201);
+    expect(decision.body.data.supplier.status).toBe('APPROVED');
+    expect(decision.body.data.action.decision).toBe('APPROVED');
+
+    const supplier = await prisma.supplier.findUniqueOrThrow({ where: { id: supplierId } });
+    expect(supplier.status).toBe('APPROVED');
+  });
+
+  it('20. creates additional document requests', async () => {
+    const { email } = await createStaffUser(UserRole.REVIEWER);
+    createdEmails.push(email);
+    const reviewerCookie = await loginAs(app, email);
+    const { supplierId, types } = await createSubmittedSupplier('Request Supplies');
 
     const requestDoc = await request(app)
       .post(`/api/reviewer/suppliers/${supplierId}/document-requests`)
-      .set('Cookie', reviewer.cookie)
+      .set('Cookie', reviewerCookie)
       .send({
         documentTypeId: types[1].id,
         message: 'Please upload a clearer bank confirmation letter.',
       });
+
     expect(requestDoc.status).toBe(201);
     expect(requestDoc.body.data.supplier.status).toBe('NEEDS_INFORMATION');
+    expect(requestDoc.body.data.request.message).toMatch(/bank confirmation/i);
 
-    const decision = await request(app)
+    const openRequests = await prisma.documentRequest.count({
+      where: { supplierId, status: 'OPEN' },
+    });
+    expect(openRequests).toBeGreaterThanOrEqual(1);
+  });
+
+  it('21. exposes review history and related audit activity', async () => {
+    const { email } = await createStaffUser(UserRole.REVIEWER);
+    createdEmails.push(email);
+    const reviewerCookie = await loginAs(app, email);
+    const { supplierId, types } = await createSubmittedSupplier('History Supplies');
+
+    await request(app)
+      .patch(`/api/reviewer/suppliers/${supplierId}/corrections`)
+      .set('Cookie', reviewerCookie)
+      .send({
+        legalName: 'History Supplies Limited',
+        reason: 'Align legal name with registration certificate',
+      });
+
+    await request(app)
+      .post(`/api/reviewer/suppliers/${supplierId}/document-requests`)
+      .set('Cookie', reviewerCookie)
+      .send({
+        documentTypeId: types[0].id,
+        message: 'Please resubmit business registration.',
+      });
+
+    await request(app)
       .post(`/api/reviewer/suppliers/${supplierId}/decisions`)
-      .set('Cookie', reviewer.cookie)
+      .set('Cookie', reviewerCookie)
       .send({
         decision: 'ON_HOLD',
-        comment: 'Holding until updated bank confirmation arrives.',
+        comment: 'Holding pending clearer registration scan.',
       });
-    expect(decision.status).toBe(201);
-    expect(decision.body.data.supplier.status).toBe('ON_HOLD');
 
     const history = await request(app)
       .get(`/api/reviewer/suppliers/${supplierId}`)
-      .set('Cookie', reviewer.cookie);
+      .set('Cookie', reviewerCookie);
+
+    expect(history.status).toBe(200);
     expect(history.body.data.supplier.reviewActions.length).toBeGreaterThan(0);
+    expect(history.body.data.supplier.documentRequests.length).toBeGreaterThan(0);
     expect(
       history.body.data.auditLogs.some(
         (log: { action: string }) => log.action === 'SUPPLIER_MANUAL_CORRECTION',
       ),
     ).toBe(true);
+    expect(history.body.data.supplier.status).toBe('ON_HOLD');
   });
 });

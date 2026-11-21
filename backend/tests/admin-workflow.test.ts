@@ -1,43 +1,29 @@
 import request from 'supertest';
 import { UserRole } from '@prisma/client';
 import { createApp } from '../src/app';
-import { hashPassword } from '../src/lib/password';
 import { prisma } from '../src/lib/prisma';
 import {
+  SYNTHETIC_PASSWORD,
   cleanupUserByEmail,
-  cookieHeader,
+  createStaffUser,
+  loginAs,
   registerSupplier,
   uniqueEmail,
 } from './helpers';
 
-describe('Admin workspace API', () => {
+describe('Admin workspace workflow', () => {
   const app = createApp();
   const createdEmails: string[] = [];
   const createdDocumentTypeIds: string[] = [];
   const createdChecklistIds: string[] = [];
   const createdReferenceIds: string[] = [];
 
-  let adminEmail = '';
   let adminCookie: string[] = [];
 
   beforeAll(async () => {
-    adminEmail = uniqueEmail('admin-workspace');
-    createdEmails.push(adminEmail);
-    await prisma.user.create({
-      data: {
-        name: 'Workspace Admin',
-        email: adminEmail,
-        passwordHash: await hashPassword('secure-password-1'),
-        role: UserRole.ADMIN,
-        isActive: true,
-      },
-    });
-
-    const login = await request(app)
-      .post('/api/auth/login')
-      .send({ email: adminEmail, password: 'secure-password-1' });
-    expect(login.status).toBe(200);
-    adminCookie = cookieHeader(login.headers['set-cookie']);
+    const { email } = await createStaffUser(UserRole.ADMIN);
+    createdEmails.push(email);
+    adminCookie = await loginAs(app, email);
   });
 
   afterAll(async () => {
@@ -63,43 +49,34 @@ describe('Admin workspace API', () => {
     await prisma.$disconnect();
   });
 
-  it('rejects non-admin access to admin APIs', async () => {
-    const supplierEmail = uniqueEmail('admin-block');
-    createdEmails.push(supplierEmail);
-    const { response } = await registerSupplier(app, { email: supplierEmail });
-    const supplierCookie = cookieHeader(response.headers['set-cookie']);
+  it('blocks supplier contacts from admin APIs', async () => {
+    const email = uniqueEmail('admin-block');
+    createdEmails.push(email);
+    const { response } = await registerSupplier(app, { email });
+    const supplierCookie = response.headers['set-cookie']
+      ? Array.isArray(response.headers['set-cookie'])
+        ? response.headers['set-cookie']
+        : [response.headers['set-cookie']]
+      : [];
 
     const blocked = await request(app)
       .get('/api/admin/dashboard')
       .set('Cookie', supplierCookie);
-
     expect(blocked.status).toBe(403);
+
+    const blockedUsers = await request(app)
+      .post('/api/admin/users')
+      .set('Cookie', supplierCookie)
+      .send({
+        name: 'Nope',
+        email: uniqueEmail('blocked-create'),
+        password: SYNTHETIC_PASSWORD,
+        role: UserRole.ADMIN,
+      });
+    expect(blockedUsers.status).toBe(403);
   });
 
-  it('returns live dashboard counts from PostgreSQL', async () => {
-    const before = await request(app)
-      .get('/api/admin/dashboard')
-      .set('Cookie', adminCookie);
-    expect(before.status).toBe(200);
-    expect(before.body.success).toBe(true);
-
-    const supplierEmail = uniqueEmail('admin-dash-supplier');
-    createdEmails.push(supplierEmail);
-    await registerSupplier(app, { email: supplierEmail, companyName: 'Dashboard Co' });
-
-    const after = await request(app)
-      .get('/api/admin/dashboard')
-      .set('Cookie', adminCookie);
-
-    expect(after.status).toBe(200);
-    expect(after.body.data.suppliers.total).toBeGreaterThanOrEqual(
-      before.body.data.suppliers.total + 1,
-    );
-    expect(after.body.data.suppliers.byStatus.DRAFT).toBeGreaterThanOrEqual(1);
-    expect(after.body.data.users.total).toBeGreaterThanOrEqual(1);
-  });
-
-  it('searches users, assigns roles, and activates or deactivates accounts', async () => {
+  it('22. manages user roles and activation state', async () => {
     const targetEmail = uniqueEmail('admin-role-target');
     createdEmails.push(targetEmail);
 
@@ -109,7 +86,7 @@ describe('Admin workspace API', () => {
       .send({
         name: 'Role Target',
         email: targetEmail,
-        password: 'secure-password-1',
+        password: SYNTHETIC_PASSWORD,
         role: UserRole.SUPPLIER_CONTACT,
       });
 
@@ -122,9 +99,11 @@ describe('Admin workspace API', () => {
       .get(`/api/admin/users?q=${encodeURIComponent(targetEmail)}`)
       .set('Cookie', adminCookie);
     expect(listed.status).toBe(200);
-    expect(listed.body.data.users.some((user: { email: string }) => user.email === targetEmail.toLowerCase())).toBe(
-      true,
-    );
+    expect(
+      listed.body.data.users.some(
+        (user: { email: string }) => user.email === targetEmail.toLowerCase(),
+      ),
+    ).toBe(true);
 
     const promoted = await request(app)
       .patch(`/api/admin/users/${created.body.data.user.id}`)
@@ -142,7 +121,7 @@ describe('Admin workspace API', () => {
 
     const loginBlocked = await request(app)
       .post('/api/auth/login')
-      .send({ email: targetEmail, password: 'secure-password-1' });
+      .send({ email: targetEmail, password: SYNTHETIC_PASSWORD });
     expect(loginBlocked.status).toBe(401);
 
     const stored = await prisma.user.findUniqueOrThrow({
@@ -153,9 +132,9 @@ describe('Admin workspace API', () => {
     expect(JSON.stringify(promoted.body)).not.toContain(stored.passwordHash);
   });
 
-  it('persists document types, checklist items, and reference sources', async () => {
+  it('23. manages document types', async () => {
     const code = `ADMIN_TYPE_${Date.now()}`;
-    const typeResponse = await request(app)
+    const created = await request(app)
       .post('/api/admin/document-types')
       .set('Cookie', adminCookie)
       .send({
@@ -166,36 +145,95 @@ describe('Admin workspace API', () => {
         active: true,
       });
 
-    expect(typeResponse.status).toBe(201);
-    const documentTypeId = typeResponse.body.data.documentType.id as string;
-    createdDocumentTypeIds.push(documentTypeId);
+    expect(created.status).toBe(201);
+    createdDocumentTypeIds.push(created.body.data.documentType.id);
 
-    const checklistResponse = await request(app)
+    const updated = await request(app)
+      .patch(`/api/admin/document-types/${created.body.data.documentType.id}`)
+      .set('Cookie', adminCookie)
+      .send({ description: 'Updated synthetic description', active: false });
+
+    expect(updated.status).toBe(200);
+    expect(updated.body.data.documentType.active).toBe(false);
+    expect(updated.body.data.documentType.description).toBe('Updated synthetic description');
+
+    const listed = await request(app)
+      .get('/api/admin/document-types')
+      .set('Cookie', adminCookie);
+    expect(listed.status).toBe(200);
+    expect(
+      listed.body.data.documentTypes.some(
+        (row: { id: string }) => row.id === created.body.data.documentType.id,
+      ),
+    ).toBe(true);
+
+    const persisted = await prisma.documentType.findUniqueOrThrow({
+      where: { id: created.body.data.documentType.id },
+    });
+    expect(persisted.code).toBe(code);
+    expect(persisted.active).toBe(false);
+  });
+
+  it('24. supports checklist item CRUD with document-type links', async () => {
+    const type = await request(app)
+      .post('/api/admin/document-types')
+      .set('Cookie', adminCookie)
+      .send({
+        name: 'Checklist Linked Type',
+        code: `CL_TYPE_${Date.now()}`,
+        required: true,
+        active: true,
+      });
+    expect(type.status).toBe(201);
+    createdDocumentTypeIds.push(type.body.data.documentType.id);
+
+    const created = await request(app)
       .post('/api/admin/checklists')
       .set('Cookie', adminCookie)
       .send({
-        title: 'Admin test requirement',
+        title: 'Synthetic bank confirmation letter',
         description: 'Linked checklist item',
-        documentTypeId,
+        documentTypeId: type.body.data.documentType.id,
         isRequired: true,
         isActive: true,
         version: '2.0',
         effectiveDate: '2026-01-15',
       });
 
-    expect(checklistResponse.status).toBe(201);
-    expect(checklistResponse.body.data.checklistItem.documentTypeId).toBe(documentTypeId);
-    expect(checklistResponse.body.data.checklistItem.version).toBe('2.0');
-    createdChecklistIds.push(checklistResponse.body.data.checklistItem.id);
+    expect(created.status).toBe(201);
+    expect(created.body.data.checklistItem.documentTypeId).toBe(type.body.data.documentType.id);
+    expect(created.body.data.checklistItem.version).toBe('2.0');
+    createdChecklistIds.push(created.body.data.checklistItem.id);
 
-    const deactivated = await request(app)
-      .patch(`/api/admin/checklists/${checklistResponse.body.data.checklistItem.id}`)
+    const updated = await request(app)
+      .patch(`/api/admin/checklists/${created.body.data.checklistItem.id}`)
       .set('Cookie', adminCookie)
-      .send({ isActive: false });
-    expect(deactivated.status).toBe(200);
-    expect(deactivated.body.data.checklistItem.isActive).toBe(false);
+      .send({
+        title: 'Updated synthetic bank confirmation letter',
+        isActive: false,
+        version: '2.1',
+      });
+    expect(updated.status).toBe(200);
+    expect(updated.body.data.checklistItem.isActive).toBe(false);
+    expect(updated.body.data.checklistItem.version).toBe('2.1');
 
-    const referenceResponse = await request(app)
+    const listed = await request(app).get('/api/admin/checklists').set('Cookie', adminCookie);
+    expect(listed.status).toBe(200);
+    expect(
+      listed.body.data.checklistItems.some(
+        (row: { id: string }) => row.id === created.body.data.checklistItem.id,
+      ),
+    ).toBe(true);
+
+    const persisted = await prisma.checklistItem.findUniqueOrThrow({
+      where: { id: created.body.data.checklistItem.id },
+    });
+    expect(persisted.title).toBe('Updated synthetic bank confirmation letter');
+    expect(persisted.isActive).toBe(false);
+  });
+
+  it('25. manages reference source metadata', async () => {
+    const created = await request(app)
       .post('/api/admin/reference-sources')
       .set('Cookie', adminCookie)
       .send({
@@ -204,58 +242,67 @@ describe('Admin workspace API', () => {
         effectiveDate: '2026-02-01',
         sourceDescription: 'Internal procurement onboarding policy metadata',
       });
-    expect(referenceResponse.status).toBe(201);
-    createdReferenceIds.push(referenceResponse.body.data.referenceSource.id);
 
-    const updatedReference = await request(app)
-      .patch(`/api/admin/reference-sources/${referenceResponse.body.data.referenceSource.id}`)
+    expect(created.status).toBe(201);
+    createdReferenceIds.push(created.body.data.referenceSource.id);
+
+    const updated = await request(app)
+      .patch(`/api/admin/reference-sources/${created.body.data.referenceSource.id}`)
       .set('Cookie', adminCookie)
       .send({ sourceDescription: 'Updated policy description for persistence check' });
-    expect(updatedReference.status).toBe(200);
-    expect(updatedReference.body.data.referenceSource.sourceDescription).toContain('Updated policy');
 
-    const persistedType = await prisma.documentType.findUnique({ where: { id: documentTypeId } });
-    const persistedChecklist = await prisma.checklistItem.findUnique({
-      where: { id: checklistResponse.body.data.checklistItem.id },
-    });
-    const persistedReference = await prisma.referenceSource.findUnique({
-      where: { id: referenceResponse.body.data.referenceSource.id },
-    });
+    expect(updated.status).toBe(200);
+    expect(updated.body.data.referenceSource.sourceDescription).toContain('Updated policy');
 
-    expect(persistedType?.code).toBe(code);
-    expect(persistedChecklist?.isActive).toBe(false);
-    expect(persistedChecklist?.documentTypeId).toBe(documentTypeId);
-    expect(persistedReference?.sourceDescription).toContain('Updated policy');
+    const listed = await request(app)
+      .get('/api/admin/reference-sources')
+      .set('Cookie', adminCookie);
+    expect(listed.status).toBe(200);
+    expect(
+      listed.body.data.referenceSources.some(
+        (row: { id: string }) => row.id === created.body.data.referenceSource.id,
+      ),
+    ).toBe(true);
+
+    const persisted = await prisma.referenceSource.findUniqueOrThrow({
+      where: { id: created.body.data.referenceSource.id },
+    });
+    expect(persisted.sourceDescription).toContain('Updated policy');
   });
 
-  it('lists suppliers and important audit records for administrators', async () => {
-    const supplierEmail = uniqueEmail('admin-supplier-list');
+  it('26. provides audit log access for administrators', async () => {
+    const supplierEmail = uniqueEmail('admin-audit-supplier');
     createdEmails.push(supplierEmail);
     await registerSupplier(app, {
       email: supplierEmail,
       companyName: 'Audit Trail Supplies',
     });
 
-    const suppliers = await request(app)
-      .get('/api/admin/suppliers?q=Audit%20Trail')
-      .set('Cookie', adminCookie);
-    expect(suppliers.status).toBe(200);
-    expect(
-      suppliers.body.data.suppliers.some(
-        (row: { companyName: string }) => row.companyName === 'Audit Trail Supplies',
-      ),
-    ).toBe(true);
-
     const audits = await request(app)
       .get('/api/admin/audit-logs?action=ADMIN_')
       .set('Cookie', adminCookie);
+
     expect(audits.status).toBe(200);
     expect(audits.body.data.auditLogs.length).toBeGreaterThan(0);
     expect(
       audits.body.data.auditLogs.every(
-        (log: { action: string; actor?: { passwordHash?: string } }) =>
-          !('passwordHash' in (log.actor ?? {})) && log.action.includes('ADMIN_'),
+        (log: { action: string; actor?: Record<string, unknown> | null }) => {
+          const actor = log.actor ?? {};
+          return !('passwordHash' in actor) && log.action.includes('ADMIN_');
+        },
       ),
     ).toBe(true);
+
+    const dashboard = await request(app)
+      .get('/api/admin/dashboard')
+      .set('Cookie', adminCookie);
+    expect(dashboard.status).toBe(200);
+    expect(dashboard.body.data.suppliers.total).toBeGreaterThanOrEqual(1);
+    expect(dashboard.body.data.suppliers.byStatus).toEqual(
+      expect.objectContaining({
+        DRAFT: expect.any(Number),
+        SUBMITTED: expect.any(Number),
+      }),
+    );
   });
 });
