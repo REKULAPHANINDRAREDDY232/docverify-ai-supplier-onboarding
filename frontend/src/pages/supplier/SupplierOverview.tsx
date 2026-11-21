@@ -1,0 +1,51 @@
+import { StatusBadge } from '../../components/ui/StatusBadge';
+import { SUPPLIER_STATUSES, type SupplierStatus } from '../../types/domain';
+
+const checklist: Array<{ label: string; status: SupplierStatus }> = [
+  { label: 'Company profile', status: 'DRAFT' },
+  { label: 'Required documents', status: 'DRAFT' },
+  { label: 'Submission for review', status: 'DRAFT' },
+];
+
+export function SupplierOverview() {
+  return (
+    <section className="stack">
+      <div className="page-header">
+        <div>
+          <h2>Onboarding overview</h2>
+          <p className="muted">
+            Complete your company profile and upload the required compliance documents.
+          </p>
+        </div>
+        <StatusBadge status="DRAFT" />
+      </div>
+
+      <div className="panel">
+        <h3>Current status</h3>
+        <p className="muted">
+          No supplier packet is loaded yet. Connect authentication and the supplier API in a later
+          phase to populate this workspace.
+        </p>
+        <ul className="status-legend">
+          {SUPPLIER_STATUSES.map((status) => (
+            <li key={status}>
+              <StatusBadge status={status} />
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="panel">
+        <h3>Getting started checklist</h3>
+        <ul className="checklist">
+          {checklist.map((item) => (
+            <li key={item.label}>
+              <span>{item.label}</span>
+              <StatusBadge status={item.status} />
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
